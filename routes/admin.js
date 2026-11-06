@@ -277,5 +277,64 @@ router.get('/polls/:id/export', async (req, res) => {
     handleError(res, err);
   }
 });
+// ==========================================
+// GESTION DES ÉLECTEURS (USERS)
+// ==========================================
 
+// 1. Obtenir la liste de tous les utilisateurs
+router.get('/users', async (req, res) => {
+    try {
+        const [users] = await pool.query('SELECT id, name, email, role, is_validated, created_at FROM users ORDER BY name ASC');
+        res.json(users);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erreur lors de la récupération des utilisateurs.' });
+    }
+});
+
+// 2. Changer le rôle d'un utilisateur
+router.put('/users/:id/role', async (req, res) => {
+    try {
+        const { role } = req.body;
+        // On vérifie que le rôle envoyé est valide
+        if (!['voter', 'admin'].includes(role)) {
+            return res.status(400).json({ error: 'Rôle invalide.' });
+        }
+        
+        await pool.query('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]);
+        res.json({ message: 'Rôle mis à jour avec succès.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erreur lors de la mise à jour du rôle.' });
+    }
+});
+
+// 3. Supprimer un utilisateur
+router.delete('/users/:id', async (req, res) => {
+    try {
+        // Sécurité : on empêche un admin de se supprimer lui-même
+        if (parseInt(req.params.id) === req.user.id) {
+            return res.status(400).json({ error: 'Vous ne pouvez pas supprimer votre propre compte.' });
+        }
+
+        await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Utilisateur supprimé avec succès.' });
+    } catch (err) {
+        console.error(err);
+        // Si l'utilisateur a déjà voté, la clé étrangère bloquera la suppression
+        if (err.code === 'ER_ROW_IS_REFERENCED_2') {
+            return res.status(400).json({ error: 'Impossible de supprimer : cet électeur a déjà participé à un vote.' });
+        }
+        res.status(500).json({ error: 'Erreur lors de la suppression.' });
+    }
+});// Valider un compte utilisateur
+router.put('/users/:id/validate', async (req, res) => {
+    try {
+        await pool.query('UPDATE users SET is_validated = TRUE WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Compte validé avec succès. L\'électeur peut maintenant voter.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erreur lors de la validation du compte.' });
+    }
+});
 module.exports = router;

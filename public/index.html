@@ -78,7 +78,8 @@ function auth(reg){
 
 async function list(){
   const ps=await api('/polls'),A=S.user.role==='admin';
-  $('#app').innerHTML=`<h1>Votes</h1>${A?'<button onclick="newForm()">Nouveau vote</button>':''}`+(ps.map(p=>{
+  $('#app').innerHTML=`<h1>Votes</h1>${A?'<button onclick="newForm()" style="margin-right: 10px;">Nouveau vote</button>':''}
+${A?'<button onclick="showUsers()" class="g">Gérer les électeurs</button>':''}`+(ps.map(p=>{
     const ex=!p.is_secret||p.is_mixed;
     return `<section class="c"><div><h2>${esc(p.title)}</h2><p>${esc(p.description||'')}</p>
     <span class="t ${p.status}">${L[p.status]}</span>${p.is_secret?'<span class="t sec">Secret</span>':''}${p.has_voted?'<span class="t ok">Vous avez voté</span>':''}</div>
@@ -221,6 +222,71 @@ function newForm(){
       }
     });
   };
+}// ==========================================
+// GESTION DES ÉLECTEURS (FRONTEND)
+// ==========================================
+
+async function showUsers() {
+    go(async () => {
+        const users = await api('/admin/users');
+        
+        $('#app').innerHTML = `
+            <button class="g" onclick="go(list)">Retour aux votes</button>
+            <h1>Gestion des électeurs</h1>
+            <p>${users.length} utilisateur(s) inscrit(s) dans la base.</p>
+            <table style="margin-top: 1rem;">
+                <tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Statut</th><th>Actions</th></tr>
+                ${users.map(u => `
+                    <tr>
+                        <td>${esc(u.name)}</td>
+                        <td>${esc(u.email)}</td>
+                        <td><strong>${esc(u.role)}</strong></td>
+                        <td>${u.is_validated ? '✅ Validé' : '<span style="color:red; font-weight:bold;">⏳ En attente</span>'}</td>
+                        <td style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            
+                            ${!u.is_validated ? `<button class="g" onclick="validateUser(${u.id})">Valider</button>` : ''}
+                            
+                            <button class="g" onclick="toggleRole(${u.id}, '${u.role}')">
+                                ${u.role === 'admin' ? 'Rétrograder' : 'Nommer Admin'}
+                            </button>
+                            
+                            <button class="d" onclick="deleteUser(${u.id})">Supprimer</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </table>
+        `;
+    });
+}
+
+async function validateUser(id) {
+    if (!confirm('Valider ce compte ? L\'utilisateur pourra voter.')) return;
+    go(async () => {
+        const d = await api(`/admin/users/${id}/validate`, { m: 'PUT' });
+        note(d.message);
+        await showUsers();
+    });
+}
+async function toggleRole(id, currentRole) {
+    const newRole = currentRole === 'admin' ? 'voter' : 'admin';
+    const msg = newRole === 'admin' ? 'Nommer cet utilisateur administrateur ?' : 'Rétrograder cet administrateur en simple électeur ?';
+    if (!confirm(msg)) return;
+    
+    go(async () => {
+        const d = await api(`/admin/users/${id}/role`, { m: 'PUT', b: { role: newRole } });
+        note(d.message);
+        await showUsers(); // Recharge la liste pour voir le changement
+    });
+}
+
+async function deleteUser(id) {
+    if (!confirm('Voulez-vous vraiment supprimer cet électeur ? Action irréversible.')) return;
+    
+    go(async () => {
+        const d = await api(`/admin/users/${id}`, { m: 'DELETE' });
+        note(d.message);
+        await showUsers(); // Recharge la liste
+    });
 }
 start();
 </script>
