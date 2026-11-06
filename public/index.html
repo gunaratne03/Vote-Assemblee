@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vote sécurisé — Assemblée nationale de Madagascar</title>
+<style>
+:root{--g:#0b5d3b;--gd:#08432b;--r:#b3261e;--ink:#17241e;--mut:#5b6a62;--bg:#f4f6f3;--w:#fff;--ln:#d9dfda;--y:#8a5a00}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,sans-serif}
+#bar{background:var(--g);color:#fff;padding:.8rem 1.2rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;border-bottom:4px solid var(--r)}
+#bar b{font-size:1.05rem}
+main{max-width:52rem;margin:0 auto;padding:1.4rem 1rem 3rem}
+h1{font-size:1.6rem;margin:.2rem 0 1rem}h2{font-size:1.15rem;margin:0 0 .3rem}
+button{font:inherit;background:var(--g);color:#fff;border:0;border-radius:6px;padding:.55rem 1rem;cursor:pointer}
+button:hover{background:var(--gd)}button.g{background:var(--w);color:var(--g);border:1px solid var(--g)}
+button.d{background:var(--w);color:var(--r);border:1px solid var(--r)}
+#bar button{background:transparent;border:1px solid #fff;color:#fff;margin-left:.6rem}
+:focus-visible{outline:3px solid #f0b429;outline-offset:2px}
+input,textarea{font:inherit;width:100%;padding:.55rem;border:1px solid var(--ln);border-radius:6px;background:var(--w)}
+input[type=checkbox],input[type=radio]{width:auto}
+label{display:block;margin:.7rem 0 .2rem;font-weight:600}label.k{font-weight:400;display:flex;gap:.5rem;align-items:center}
+.c{background:var(--w);border:1px solid var(--ln);border-radius:8px;padding:1rem;margin:.8rem 0;display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.c p{margin:.2rem 0 .5rem;color:var(--mut)}
+.a{display:flex;gap:.4rem;flex-wrap:wrap;align-items:flex-start}
+.t{display:inline-block;font-size:.8rem;padding:.1rem .55rem;border-radius:99px;margin-right:.3rem;border:1px solid var(--ln)}
+.t.open{background:#dff3e8;color:var(--gd)}.t.scheduled{background:#fff2d6;color:var(--y)}.t.closed{background:#eceeed;color:var(--mut)}
+.t.sec{background:#fde8e6;color:var(--r)}.t.ok{background:#dff3e8;color:var(--gd)}
+.o{display:flex;gap:.7rem;align-items:center;background:var(--w);border:1px solid var(--ln);border-radius:8px;padding:.7rem;margin:.5rem 0;cursor:pointer;font-weight:400}
+.o img{width:48px;height:48px;border-radius:50%;object-fit:cover}.o small{display:block;color:var(--mut)}
+.o:has(input:checked){border-color:var(--g);background:#eef7f1}
+.row{display:grid;grid-template-columns:9rem 1fr 3rem;gap:.6rem;align-items:center;margin:.5rem 0}
+.bt{background:#e4e9e5;border-radius:4px;height:1.1rem}.bt i{display:block;height:100%;background:var(--g);border-radius:4px}
+.row.w .bt i{background:var(--r)}
+#n{position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);background:var(--ink);color:#fff;padding:.7rem 1.1rem;border-radius:8px;max-width:90%;display:none}
+#n.e{background:var(--r)}
+table{width:100%;border-collapse:collapse;background:var(--w)}td,th{border-bottom:1px solid var(--ln);padding:.4rem .6rem;text-align:left}
+@media(max-width:560px){.row{grid-template-columns:6rem 1fr 2.5rem}}
+
+/* AJOUT : Style pour les lignes de candidats */
+.cand-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.cand-row input[type="text"] { flex: 1; }
+.cand-row input[type="file"] { flex: 1; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<main id="app"></main>
+<div id="n" role="status"></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const L={open:'Ouvert',scheduled:'Programmé',closed:'Fermé'};
+let S=JSON.parse(sessionStorage.getItem('s')||'null');
+let timer;
+function note(t,e){const n=$('#n');n.textContent=t;n.className=e?'e':'';n.style.display='block';clearTimeout(timer);timer=setTimeout(()=>n.style.display='none',4500)}
+async function api(p,o={}){
+  const r=await fetch('/api'+p,{method:o.m||'GET',headers:{'Content-Type':'application/json',...(S?{Authorization:'Bearer '+S.token}:{})},body:o.b?JSON.stringify(o.b):undefined});
+  const d=(r.headers.get('content-type')||'').includes('json')?await r.json():await r.text();
+  if(!r.ok){if(r.status===401&&S){out();}throw new Error(d.error||'Erreur')}
+  return d}
+const go=f=>f().catch(e=>note(e.message,1));
+function out(){S=null;sessionStorage.removeItem('s');start()}
+function start(){
+  $('#bar').innerHTML='<b>Vote sécurisé · Assemblée nationale de Madagascar</b>'+(S?`<span>${esc(S.user.name)}<button onclick="out()">Quitter</button></span>`:'');
+  S?go(list):auth()}
+
+function auth(reg){
+  $('#app').innerHTML=`<h1>${reg?'Créer un compte':'Connexion'}</h1><form id="f" style="max-width:24rem">
+  ${reg?'<label for="nm">Nom complet</label><input id="nm" required>':''}
+  <label for="em">Adresse e-mail</label><input id="em" type="email" required>
+  <label for="pw">Mot de passe${reg?' (8 caractères minimum)':''}</label><input id="pw" type="password" required minlength="${reg?8:1}">
+  <p><button>${reg?'Créer mon compte':'Se connecter'}</button> <button type="button" class="g" onclick="auth(${!reg})">${reg?'J’ai déjà un compte':'Créer un compte'}</button></p></form>`;
+  $('#f').onsubmit=e=>{e.preventDefault();go(async()=>{
+    if(reg){await api('/register',{m:'POST',b:{name:$('#nm').value,email:$('#em').value,password:$('#pw').value}});note('Compte créé : connectez-vous')}
+    else{S=await api('/login',{m:'POST',b:{email:$('#em').value,password:$('#pw').value}});sessionStorage.setItem('s',JSON.stringify(S))}
+    start()})}}
+
+async function list(){
+  const ps=await api('/polls'),A=S.user.role==='admin';
+  $('#app').innerHTML=`<h1>Votes</h1>${A?'<button onclick="newForm()">Nouveau vote</button>':''}`+(ps.map(p=>{
+    const ex=!p.is_secret||p.is_mixed;
+    return `<section class="c"><div><h2>${esc(p.title)}</h2><p>${esc(p.description||'')}</p>
+    <span class="t ${p.status}">${L[p.status]}</span>${p.is_secret?'<span class="t sec">Secret</span>':''}${p.has_voted?'<span class="t ok">Vous avez voté</span>':''}</div>
+    <div class="a">${p.status==='open'&&!p.has_voted?`<button onclick="vote(${p.id})">Voter</button>`:''}
+    ${p.status==='closed'&&(p.show_results||A)?`<button class="g" onclick="res(${p.id})">Résultats</button>`:''}
+    ${A?`${p.status!=='open'&&!p.is_mixed?`<button class="g" onclick="act(${p.id},'open')">Ouvrir</button>`:''}
+    ${p.status!=='closed'?`<button class="g" onclick="act(${p.id},'close')">Clôturer</button>`:''}
+    ${p.status==='closed'&&p.is_secret&&!p.is_mixed?`<button onclick="mix(${p.id})">Mixer et dépouiller</button>`:''}
+    <button class="g" onclick="showPart(${p.id})">Participation</button>
+    ${p.status==='closed'&&ex?`<button class="g" onclick="exp(${p.id})">Exporter</button>`:''}
+    <button class="d" onclick="del(${p.id})">Supprimer</button>`:''}</div></section>`}).join('')||'<p>Aucun vote pour le moment.</p>')}
+
+async function vote(id){
+  const p=await api('/polls/'+id),m=p.allow_multiple;
+  $('#app').innerHTML=`<button class="g" onclick="go(list)">Retour</button><h1>${esc(p.title)}</h1>
+  <p>${p.is_secret?'Vote secret : votre choix reste anonyme.':'Vote ordinaire.'} ${m?`Choisissez jusqu’à ${p.max_choices} options.`:'Choisissez une option.'}</p>
+  <form id="f">${p.options.map(o=>`<label class="o"><input type="${m?'checkbox':'radio'}" name="o" value="${o.id}">${o.photo_url?`<img src="${esc(o.photo_url)}" alt="">`:''}<span>${esc(o.label)}<small>${esc(o.circonscription||'')}</small></span></label>`).join('')}
+  <p><button>Confirmer mon vote</button></p></form>`;
+  $('#f').onsubmit=e=>{e.preventDefault();
+    const ids=[...document.querySelectorAll('#f input:checked')].map(i=>+i.value);
+    if(!ids.length)return note('Sélectionnez au moins une option',1);
+    if(!confirm('Confirmer votre vote ? Il sera définitif.'))return;
+    go(async()=>{await api('/polls/'+id+(p.is_secret?'/secret-vote':'/vote'),{m:'POST',b:{option_ids:ids}});note('Vote enregistré');await list()})}}
+
+async function res(id){
+  const d=await api('/polls/'+id+'/results'),mx=Math.max(1,...d.results.map(r=>r.vote_count));
+  $('#app').innerHTML=`<button class="g" onclick="go(list)">Retour</button><h1>${esc(d.poll.title)}</h1>
+  <p>${d.participants} participant(s)${d.poll.is_secret?' · vote secret, dépouillé après mixage':''}</p>`+
+  d.results.map((r,i)=>`<div class="row ${i===0&&r.vote_count>0?'w':''}"><span>${esc(r.label)}</span><div class="bt"><i style="width:${r.vote_count/mx*100}%"></i></div><b>${r.vote_count}</b></div>`).join('')}
+
+function act(id,a){go(async()=>{const d=await api(`/admin/polls/${id}/${a}`,{m:'POST'});note(d.message);await list()})}
+function mix(id){if(confirm('Mélanger les bulletins et lancer le dépouillement ? Action définitive.'))go(async()=>{const d=await api(`/admin/polls/${id}/mix`,{m:'POST',b:{}});note(`${d.ballots} bulletins mixés · intégrité ${d.integrity_ok?'OK':'À VÉRIFIER'}`,!d.integrity_ok);await list()})}
+function del(id){if(confirm('Supprimer ce vote ?'))go(async()=>{await api('/admin/polls/'+id,{m:'DELETE'});await list()})}
+function exp(id){go(async()=>{const r=await fetch(`/api/admin/polls/${id}/export`,{headers:{Authorization:'Bearer '+S.token}});if(!r.ok)throw new Error((await r.json()).error);const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=`resultats_${id}.csv`;a.click()})}
+function showPart(id){go(async()=>{const d=await api(`/admin/polls/${id}/participation`);
+  $('#app').innerHTML=`<button class="g" onclick="go(list)">Retour</button><h1>Participation</h1><p>${d.participants} votant(s) sur ${d.registered_voters} électeurs inscrits. Cette liste indique qui a voté, jamais pour qui.</p>
+  <table><tr><th>Nom</th><th>E-mail</th><th>Heure</th></tr>${d.list.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${esc(u.voted_at)}</td></tr>`).join('')}</table>`})}
+
+// ==========================================
+// NOUVELLES FONCTIONS POUR L'UPLOAD D'IMAGE
+// ==========================================
+
+// Ajoute une nouvelle ligne de candidat dans le formulaire
+function addCandidate() {
+  const div = document.createElement('div');
+  div.className = 'cand-row';
+  div.innerHTML = `
+    <input type="text" class="c-name" placeholder="Nom du candidat" required>
+    <input type="text" class="c-dist" placeholder="Circonscription" required>
+    <input type="file" class="c-file" accept="image/*" required>
+    <button type="button" class="d" onclick="this.parentElement.remove()" style="padding: 0.55rem 0.8rem;">X</button>
+  `;
+  document.getElementById('candidates-list').appendChild(div);
+}
+
+// Envoie la photo au serveur et retourne l'URL
+async function uploadImage(file) {
+  const formData = new FormData();
+  formData.append('image', file);
+
+  const r = await fetch('/api/admin/upload', {
+    method: 'POST',
+    // On n'ajoute pas 'Content-Type': 'application/json' ici, 
+    // le navigateur le gère automatiquement pour FormData
+    headers: { 'Authorization': 'Bearer ' + S.token }, 
+    body: formData
+  });
+
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || "Erreur upload image");
+  return d.imageUrl; // Renvoie "/uploads/photo-xxx.jpg"
+}
+
+// ==========================================
+
+function newForm(){
+  $('#app').innerHTML=`<button class="g" onclick="go(list)">Retour</button><h1>Nouveau vote</h1><form id="f">
+  <label for="ti">Titre</label><input id="ti" required>
+  <label for="ds">Description (facultatif)</label><input id="ds">
+  <label class="k"><input type="checkbox" id="sc"> Vote secret (anonyme)</label>
+  <label class="k"><input type="checkbox" id="mu"> Choix multiple</label>
+  <label for="mc">Nombre maximum de choix</label><input id="mc" type="number" min="1" value="1">
+  <label for="oa">Ouverture programmée (facultatif)</label><input id="oa" type="datetime-local">
+  <label for="ca">Fermeture programmée (facultatif)</label><input id="ca" type="datetime-local">
+  <label class="k"><input type="checkbox" id="sr" checked> Résultats visibles après la clôture</label>
+  
+  <label style="margin-top: 1.5rem; margin-bottom: 0.5rem;">Candidats / Options</label>
+  <div id="candidates-list"></div>
+  <button type="button" class="g" onclick="addCandidate()" style="margin-bottom: 1.5rem;">+ Ajouter un candidat</button>
+  
+  <p><button type="submit">Créer le vote</button></p></form>`;
+
+  // Ajoute une première ligne par défaut
+  addCandidate();
+
+  $('#f').onsubmit=e=>{
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = "Création en cours...";
+
+    go(async()=>{
+      try {
+        const options = [];
+        const rows = document.querySelectorAll('.cand-row');
+
+        // Parcours de toutes les lignes pour uploader les images
+        for (const row of rows) {
+          const label = row.querySelector('.c-name').value;
+          const circonscription = row.querySelector('.c-dist').value;
+          const fileInput = row.querySelector('.c-file');
+
+          let photo_url = null;
+          if (fileInput.files.length > 0) {
+            photo_url = await uploadImage(fileInput.files[0]);
+          }
+
+          options.push({ label, circonscription, photo_url });
+        }
+
+        // Envoi final du sondage avec les liens des photos
+        const d=await api('/admin/polls',{m:'POST',b:{
+          title:$('#ti').value,
+          description:$('#ds').value,
+          is_secret:$('#sc').checked,
+          allow_multiple:$('#mu').checked,
+          max_choices:+$('#mc').value,
+          open_at:$('#oa').value,
+          close_at:$('#ca').value,
+          show_results:$('#sr').checked,
+          options
+        }});
+        note(d.message);
+        await list();
+      } catch (err) {
+        throw err; // Laisse la fonction 'go' gérer l'affichage de l'erreur
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Créer le vote";
+      }
+    });
+  };
+}
+start();
+</script>
+</body>
+</html>
