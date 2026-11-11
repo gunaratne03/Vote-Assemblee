@@ -118,7 +118,7 @@ function del(id){if(confirm('Supprimer ce vote ?'))go(async()=>{await api('/admi
 function exp(id){go(async()=>{const r=await fetch(`/api/admin/polls/${id}/export`,{headers:{Authorization:'Bearer '+S.token}});if(!r.ok)throw new Error((await r.json()).error);const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=`resultats_${id}.csv`;a.click()})}
 function showPart(id){go(async()=>{const d=await api(`/admin/polls/${id}/participation`);
   $('#app').innerHTML=`<button class="g" onclick="go(list)">Retour</button><h1>Participation</h1><p>${d.participants} votant(s) sur ${d.registered_voters} électeurs inscrits. Cette liste indique qui a voté, jamais pour qui.</p>
-  <table><tr><th>Nom</th><th>E-mail</th><th>Heure</th></tr>${d.list.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${esc(u.voted_at)}</td></tr>`).join('')}</table>`})}
+  <div style="overflow-x: auto;"><table><tr><th>Nom</th><th>E-mail</th><th>Heure</th></tr>${d.list.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${esc(u.voted_at)}</td></tr>`).join('')}</table></div>`})}
 
 // ==========================================
 // NOUVELLES FONCTIONS POUR L'UPLOAD D'IMAGE
@@ -242,7 +242,8 @@ async function showUsers() {
             <button class="g" onclick="go(list)">Retour aux votes</button>
             <h1>Gestion des électeurs</h1>
             <p>${users.length} utilisateur(s) inscrit(s) dans la base.</p>
-            <table style="margin-top: 1rem;">
+            <div style="overflow-x: auto;">
+              <table style="margin-top: 1rem;">
                 <tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Statut</th><th>Actions</th></tr>
                 ${users.map(u => `
                     <tr>
@@ -263,6 +264,7 @@ async function showUsers() {
                     </tr>
                 `).join('')}
             </table>
+            </div>
         `;
     });
 }
@@ -309,7 +311,8 @@ async function showCandidates(pollId) {
             <h1>Candidats : ${esc(poll.title)}</h1>
             ${isOpen ? '<p style="color:red; font-weight:bold;">Le vote est ouvert ou clôturé, les candidats ne peuvent plus être modifiés.</p>' : ''}
             
-            <table style="margin-top: 1rem;">
+            <div style="overflow-x: auto;">
+              <table style="margin-top: 1rem;">
                 <tr><th>Photo</th><th>Nom</th><th>Circonscription</th><th>Actions</th></tr>
                 ${poll.options.map(o => `
                     <tr>
@@ -323,6 +326,7 @@ async function showCandidates(pollId) {
                     </tr>
                 `).join('')}
             </table>
+            </div>
         `;
     });
 }
