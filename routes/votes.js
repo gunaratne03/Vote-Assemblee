@@ -24,6 +24,13 @@ router.post('/:id/vote', async (req, res) => {
       if (poll.is_secret) throw new HttpError(400, 'Ce sondage est secret : utilisez le vote secret');
       if (poll.status !== 'open') throw new HttpError(409, "Ce vote n'est pas ouvert");
 
+      // --- NOUVEAU : VÉRIFICATION STRICTE DES DATES ---
+      const now = new Date();
+      if (poll.close_at && new Date(poll.close_at) < now) {
+          throw new HttpError(403, "Le vote est fermé : la date limite est dépassée.");
+      }
+      // ------------------------------------------------
+
       const { error, ids } = await validateChoices(conn, poll, option_ids);
       if (error) throw new HttpError(400, error);
 
@@ -59,6 +66,13 @@ router.post('/:id/secret-vote', async (req, res) => {
       if (!poll.is_secret) throw new HttpError(400, "Ce sondage n'est pas secret : utilisez le vote ordinaire");
       if (poll.status !== 'open') throw new HttpError(409, "Ce vote n'est pas ouvert");
       if (poll.is_mixed) throw new HttpError(409, 'Ce vote est déjà dépouillé');
+
+      // --- NOUVEAU : VÉRIFICATION STRICTE DES DATES ---
+      const now = new Date();
+      if (poll.close_at && new Date(poll.close_at) < now) {
+          throw new HttpError(403, "Le vote est fermé : la date limite est dépassée.");
+      }
+      // ------------------------------------------------
 
       const { error, ids } = await validateChoices(conn, poll, option_ids);
       if (error) throw new HttpError(400, error);

@@ -61,10 +61,17 @@ router.post('/polls', async (req, res) => {
         'INSERT INTO poll_controls (poll_id, is_open, open_at, close_at, show_results) VALUES (?, 0, ?, ?, ?)',
         [pollId, openAt, closeAt, b.show_results ? 1 : 0]
       );
-      await conn.query(
-        'INSERT INTO options (poll_id, label, photo_url, circonscription, display_order) VALUES ?',
-        [options.map((o, i) => [pollId, String(o.label).trim(), o.photo_url || null, o.circonscription || null, i + 1])]
-      );
+              await conn.query(
+          'INSERT INTO options (poll_id, label, photo_url, circonscription, display_order, option_parent_id) VALUES ?',
+          [options.map((o, i) => [
+            pollId, 
+            String(o.label).trim(), 
+            o.photo_url || null, 
+            o.circonscription || null, 
+            i, 
+            o.option_parent_id || null // <-- NOUVEAU
+          ])]
+        );
       return pollId;
     });
 
@@ -150,10 +157,23 @@ router.put('/polls/:id/control', async (req, res) => {
 // POST /api/admin/polls/:id/open  — ouvre le vote (respecte open_at / close_at s'ils existent)
 router.post('/polls/:id/open', async (req, res) => {
   try {
-    const poll = await requirePoll(pool, parseId(req.params.id));
+    const poll = await requirePoll(pool, parseInt(req.params.id));
+
+    // --- Vérification de la date de fermeture ---
+    if (poll.close_at) {
+        const closeDate = new Date(poll.close_at);
+        const now = new Date();
+        if (closeDate < now) {
+            return res.status(400).json({ error: "Impossible d'ouvrir le vote : la date de fermeture programmée est déjà dépassée." });
+        }
+    }
+    // ---------------------------------------------
+
     if (poll.is_mixed) throw new HttpError(409, 'Vote déjà dépouillé : réouverture impossible');
+    
     await pool.query('UPDATE poll_controls SET is_open = 1 WHERE poll_id = ?', [poll.id]);
     res.json({ message: 'Vote ouvert', status: (await getPoll(pool, poll.id)).status });
+
   } catch (err) {
     handleError(res, err);
   }
@@ -335,6 +355,87 @@ router.put('/users/:id/validate', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Erreur lors de la validation du compte.' });
+    }
+});// ==========================================
+// GESTION DES CANDIDATS (OPTIONS)
+// ==========================================
+
+// 1. Modifier un candidat
+router.put('/options/:id', async (req, res) => {
+    const { label, circonscription, photo_url } = req.body;
+    try {
+        // On vérifie d'abord si le vote est ouvert
+        const [options] = await pool.query('SELECT poll_id FROM options WHERE id = ?', [req.params.id]);
+        if (options.length === 0) return res.status(404).json({ error: 'Candidat introuvable.' });
+
+        const [polls] = await pool.query('SELECT is_open, status FROM polls WHERE id = ?', [options[0].poll_id]);
+        if (polls[0].is_open) {
+            return res.status(400).json({ error: 'Impossible de modifier un candidat une fois le vote ouvert.' });
+    r    }
+
+        // Mise à jour
+        await pool.query(
+            'UPDATE options SET label = ?, circonscription = ?, photo_url = ? WHERE id = ?',
+            [label, circonscription, photo_url, req.params.id]
+        );
+        res.json({ message: 'Candidat mis à jour avec succès.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erreur lors de la modification du candidat.' });
+    }
+});
+
+// 2. Supprimer un candidat
+router.delete('/options/:id', async (req, res) => {
+    try {
+        // Vérification si le vote est ouvert
+        const [options] = await pool.query('SELECT poll_id FROM options WHERE id = ?', [req.params.id]);
+        if (options.length === 0) return res.status(404).json({ error: 'Candidat introuvable.' });
+
+        const [polls] = await pool.query('SELECT is_open FROM polls WHERE id = ?', [options[0].poll_id]);
+        if (polls[0].is_open) {
+            return res.status(400).json({ error: 'Impossible de supprimer un candidat une fois le vote ouvert.' });
+        }
+
+        // Suppression
+        await pool.query('DELETE FROM options WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Candidat supprimé avec succès.' });
+    } catch (err) {
+        console.error(err);
+        // Si quelqu'un a déjà voté pour lui, la clé étrangère bloque la suppression
+        if (err.code === 'ER_ROW_IS_REFERENCED_2') {
+            return res.status(400).json({ error: 'Impossible de supprimer : des votes existent déjà pour ce candidat.' });
+        }
+        res.status(500).json({ error: 'Erreur lors de la suppression.' });
+    }
+});// Changer la visibilité des résultats d'un vote
+// Changer la visibilité des résultats d'un vote
+router.put('/polls/:id/toggle-results', async (req, res) => {
+    try {
+        const [controls] = await pool.query('SELECT show_results FROM poll_controls WHERE poll_id = ?', [req.params.id]);
+        
+        if (controls.length === 0) {
+            return res.status(404).json({ error: 'Paramètres du sondage introuvables.' });
+        }
+        
+        const newStatus = controls[0].show_results ? 0 : 1;
+        
+        await pool.query('UPDATE poll_controls SET show_results = ? WHERE poll_id = ?', [newStatus, req.params.id]);
+        
+        res.json({ message: newStatus ? 'Résultats désormais visibles par tous.' : 'Résultats masqués.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erreur lors du changement de visibilité.' });
+    }
+});// Lier un utilisateur à un député
+router.put('/users/:id/depute', async (req, res) => {
+    try {
+        const deputeId = req.body.depute_id || null;
+        await pool.query('UPDATE users SET depute_id = ? WHERE id = ?', [deputeId, req.params.id]);
+        res.json({ message: 'Lien avec le député mis à jour avec succès.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erreur lors de la liaison.' });
     }
 });
 module.exports = router;

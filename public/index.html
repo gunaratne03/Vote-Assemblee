@@ -90,6 +90,8 @@ ${A?'<button onclick="showUsers()" class="g">Gérer les électeurs</button>':''}
     ${p.status==='closed'&&p.is_secret&&!p.is_mixed?`<button onclick="mix(${p.id})">Mixer et dépouiller</button>`:''}
     <button class="g" onclick="showPart(${p.id})">Participation</button>
     ${p.status==='closed'&&ex?`<button class="g" onclick="exp(${p.id})">Exporter</button>`:''}
+    <button class="g" onclick="showCandidates(${p.id})">Gérer les candidats</button>
+    <button class="g" onclick="toggleResults(${p.id})">${p.show_results ? 'Masquer résultats' : 'Afficher résultats'}</button>
     <button class="d" onclick="del(${p.id})">Supprimer</button>`:''}</div></section>`}).join('')||'<p>Aucun vote pour le moment.</p>')}
 
 async function vote(id){
@@ -130,7 +132,8 @@ function addCandidate() {
     <input type="text" class="c-name" placeholder="Nom du candidat" required>
     <input type="text" class="c-dist" placeholder="Circonscription" required>
     <input type="file" class="c-file" accept="image/*" required>
-    <button type="button" class="d" onclick="this.parentElement.remove()" style="padding: 0.55rem 0.8rem;">X</button>
+    <input type="number" class="c-parent" placeholder="ID Parent (opt)" style="width: 130px;" title="Lier ce candidat à un autre (ex: suppléant)">
+    <button type="button" class="d" onclick="this.parentElement.remove()">X</button>
   `;
   document.getElementById('candidates-list').appendChild(div);
 }
@@ -175,56 +178,61 @@ function newForm(){
   // Ajoute une première ligne par défaut
   addCandidate();
 
-  $('#f').onsubmit=e=>{
+  $('#f').onsubmit = e => {
     e.preventDefault();
     const btn = e.target.querySelector('button[type="submit"]');
     btn.disabled = true;
     btn.textContent = "Création en cours...";
 
-    go(async()=>{
+    go(async () => {
       try {
         const options = [];
         const rows = document.querySelectorAll('.cand-row');
 
-        // Parcours de toutes les lignes pour uploader les images
         for (const row of rows) {
           const label = row.querySelector('.c-name').value;
           const circonscription = row.querySelector('.c-dist').value;
           const fileInput = row.querySelector('.c-file');
+          const parentId = row.querySelector('.c-parent').value; 
 
           let photo_url = null;
           if (fileInput.files.length > 0) {
             photo_url = await uploadImage(fileInput.files[0]);
           }
 
-          options.push({ label, circonscription, photo_url });
+          options.push({ 
+              label, 
+              circonscription, 
+              photo_url,
+              option_parent_id: parentId ? parseInt(parentId) : null 
+          });
         }
 
-        // Envoi final du sondage avec les liens des photos
-        const d=await api('/admin/polls',{m:'POST',b:{
-          title:$('#ti').value,
-          description:$('#ds').value,
-          is_secret:$('#sc').checked,
-          allow_multiple:$('#mu').checked,
-          max_choices:+$('#mc').value,
-          open_at:$('#oa').value,
-          close_at:$('#ca').value,
-          show_results:$('#sr').checked,
-          options
-        }});
+        const d = await api('/admin/polls', { 
+            m: 'POST', 
+            b: {
+              title: $('#ti').value,
+              description: $('#ds').value,
+              is_secret: $('#sc').checked,
+              allow_multiple: $('#mu').checked,
+              max_choices: +$('#mc').value,
+              open_at: $('#oa').value || null,
+              close_at: $('#ca').value || null,
+              show_results: $('#sr').checked,
+              options
+            }
+        });
         note(d.message);
         await list();
       } catch (err) {
-        throw err; // Laisse la fonction 'go' gérer l'affichage de l'erreur
+        throw err;
       } finally {
         btn.disabled = false;
         btn.textContent = "Créer le vote";
       }
     });
   };
-}// ==========================================
-// GESTION DES ÉLECTEURS (FRONTEND)
-// ==========================================
+}
 
 async function showUsers() {
     go(async () => {
@@ -245,7 +253,7 @@ async function showUsers() {
                         <td style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                             
                             ${!u.is_validated ? `<button class="g" onclick="validateUser(${u.id})">Valider</button>` : ''}
-                            
+                            <button class="g" onclick="setDeputeId(${u.id})">Lier Député</button>
                             <button class="g" onclick="toggleRole(${u.id}, '${u.role}')">
                                 ${u.role === 'admin' ? 'Rétrograder' : 'Nommer Admin'}
                             </button>
@@ -286,6 +294,81 @@ async function deleteUser(id) {
         const d = await api(`/admin/users/${id}`, { m: 'DELETE' });
         note(d.message);
         await showUsers(); // Recharge la liste
+    });
+}// ==========================================
+// GESTION DES CANDIDATS (FRONTEND)
+// ==========================================
+
+async function showCandidates(pollId) {
+    go(async () => {
+        const poll = await api('/polls/' + pollId);
+        const isOpen = poll.status === 'open' || poll.is_mixed;
+        
+        $('#app').innerHTML = `
+            <button class="g" onclick="go(list)">Retour aux votes</button>
+            <h1>Candidats : ${esc(poll.title)}</h1>
+            ${isOpen ? '<p style="color:red; font-weight:bold;">Le vote est ouvert ou clôturé, les candidats ne peuvent plus être modifiés.</p>' : ''}
+            
+            <table style="margin-top: 1rem;">
+                <tr><th>Photo</th><th>Nom</th><th>Circonscription</th><th>Actions</th></tr>
+                ${poll.options.map(o => `
+                    <tr>
+                        <td>${o.photo_url ? `<img src="${esc(o.photo_url)}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">` : 'Aucune'}</td>
+                        <td>${esc(o.label)}</td>
+                        <td>${esc(o.circonscription || '')}</td>
+                        <td style="display: flex; gap: 0.5rem;">
+                            ${!isOpen ? `<button class="g" onclick="editCandidate(${o.id}, '${esc(o.label)}', '${esc(o.circonscription || '')}', '${esc(o.photo_url || '')}', ${pollId})">Modifier</button>` : ''}
+                            ${!isOpen ? `<button class="d" onclick="deleteCandidate(${o.id}, ${pollId})">Supprimer</button>` : ''}
+                        </td>
+                    </tr>
+                `).join('')}
+            </table>
+        `;
+    });
+}
+
+async function deleteCandidate(optionId, pollId) {
+    if (!confirm('Voulez-vous vraiment supprimer ce candidat ?')) return;
+    go(async () => {
+        const d = await api(`/admin/options/${optionId}`, { m: 'DELETE' });
+        note(d.message);
+        await showCandidates(pollId); // Recharge la liste
+    });
+}
+
+async function editCandidate(optionId, currentLabel, currentDistrict, currentPhoto, pollId) {
+    const newLabel = prompt("Modifier le nom du candidat :", currentLabel);
+    if (newLabel === null || newLabel.trim() === "") return; 
+    
+    const newDistrict = prompt("Modifier la circonscription :", currentDistrict);
+    if (newDistrict === null) return; 
+
+    go(async () => {
+        const d = await api(`/admin/options/${optionId}`, {
+            m: 'PUT',
+            b: { 
+                label: newLabel, 
+                circonscription: newDistrict, 
+                photo_url: currentPhoto 
+            }
+        });
+        note(d.message);
+        await showCandidates(pollId); 
+    });
+}async function toggleResults(id) {
+    go(async () => {
+        const d = await api(`/admin/polls/${id}/toggle-results`, { m: 'PUT' });
+        note(d.message);
+        await list(); // Recharge la page pour voir le changement
+    });
+}async function setDeputeId(userId) {
+    const deputeId = prompt("Entrez le numéro (ID) du député pour lier ce compte :");
+    if (deputeId === null) return; // Annulé
+    
+    go(async () => {
+        const d = await api(`/admin/users/${userId}/depute`, { m: 'PUT', b: { depute_id: deputeId } });
+        note(d.message);
+        await showUsers();
     });
 }
 start();
