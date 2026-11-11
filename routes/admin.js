@@ -5,6 +5,7 @@ const pool = require('../db');
 const { getPoll, toSqlDate, nowSql, computeResults } = require('../utils/poll');
 const { decryptBallot, loadPrivateKey, shuffle } = require('../utils/crypto');
 const { HttpError, handleError, withTransaction, parseId } = require('../utils/http');
+const PDFDocument = require('pdfkit');
 
 const router = express.Router();
 const MAX_CHOICES_LIMIT = 30; // limite liée à la taille d'un bulletin chiffré en RSA-2048
@@ -276,23 +277,74 @@ router.post('/polls/:id/mix', async (req, res) => {
   }
 });
 
-// GET /api/admin/polls/:id/export  — résultats au format CSV (ouvrable dans Excel)
 router.get('/polls/:id/export', async (req, res) => {
   try {
     const poll = await requirePoll(pool, parseId(req.params.id));
-    if (poll.status !== 'closed') throw new HttpError(409, "Le vote n'est pas clôturé");
-    if (poll.is_secret && !poll.is_mixed) throw new HttpError(409, "Le mixage n'a pas encore eu lieu");
+    if (poll.status !== 'closed') throw new HttpError(409, 'Le vote n\'est pas clôturé');
+    if (poll.is_secret && !poll.is_mixed) throw new HttpError(409, 'Le mixage n\'a pas encore eu lieu');
 
+    // On récupère les résultats avec votre fonction existante
     const data = await computeResults(pool, poll);
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = [['Option', 'Circonscription', 'Voix'].join(';')];
-    for (const r of data.results) lines.push([esc(r.label), esc(r.circonscription), r.vote_count].join(';'));
-    lines.push('');
-    lines.push([esc('Participants'), '', data.participants].join(';'));
 
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="resultats_sondage_${poll.id}.csv"`);
-    res.send('\uFEFF' + lines.join('\r\n'));
+    // --- CRÉATION DU PDF ---
+    const doc = new PDFDocument({ margin: 50 });
+
+    // En-têtes pour forcer le téléchargement
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Resultats_${poll.title.replace(/[^a-z0-9]/gi, '_')}.pdf"`);
+
+    // On envoie le PDF vers le navigateur
+    doc.pipe(res);
+
+    // 1. Titre
+    doc.font('Helvetica-Bold').fontSize(22).fillColor('#0b5d3b').text('ASSEMBLÉE NATIONALE DE MADAGASCAR', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.font('Helvetica-Bold').fontSize(18).fillColor('#17241e').text('Rapport Officiel des Résultats', { align: 'center' });
+    doc.moveDown(1.5);
+
+    // 2. Infos du scrutin
+    doc.font('Helvetica-Bold').fontSize(14).text(`Scrutin : ${poll.title}`);
+    doc.font('Helvetica').fontSize(12).text(`Date d'édition : ${new Date().toLocaleString('fr-FR')}`);
+    doc.text(`Type de vote : ${poll.is_secret ? 'Secret (Anonyme)' : 'Ordinaire'}`);
+    doc.text(`Total des participants : ${data.participants}`);
+    doc.moveDown(1);
+
+    // Ligne de séparation
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown(1);
+
+    // 3. Résultats
+    doc.font('Helvetica-Bold').fontSize(14).text('Détail des voix :');
+    doc.moveDown(0.5);
+
+    // On calcule le maximum de voix pour dessiner les barres proportionnellement
+    const maxVotes = Math.max(1, ...data.results.map(r => r.vote_count));
+
+    data.results.forEach((r, index) => {
+      const percent = data.participants > 0 ? ((r.vote_count / data.participants) * 100).toFixed(1) : 0;
+      
+      // Texte
+      doc.font('Helvetica-Bold').fontSize(12).text(`${index + 1}. ${r.label}`, { continued: true });
+      doc.font('Helvetica').text(` - ${r.vote_count} voix (${percent}%)`);
+      
+      // Barre de progression visuelle
+      const barWidth = 400;
+      const filledWidth = (r.vote_count / maxVotes) * barWidth;
+      
+      doc.rect(50, doc.y + 5, barWidth, 12).fill('#e4e9e5'); // Fond gris
+      if (filledWidth > 0) {
+          doc.rect(50, doc.y + 5, filledWidth, 12).fill(index === 0 ? '#0b5d3b' : '#5b6a62'); // Barre de couleur
+      }
+      
+      doc.moveDown(1.5);
+    });
+
+    // 4. Pied de page
+    doc.fontSize(10).fillColor('grey').text('Document généré automatiquement par le système de vote sécurisé.', 50, 700, { align: 'center', width: 500 });
+
+    // Finaliser le PDF
+    doc.end();
+
   } catch (err) {
     handleError(res, err);
   }

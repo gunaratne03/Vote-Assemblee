@@ -41,6 +41,30 @@ table{width:100%;border-collapse:collapse;background:var(--w)}td,th{border-botto
 .cand-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
 .cand-row input[type="text"] { flex: 1; }
 .cand-row input[type="file"] { flex: 1; font-size: 0.9em; }
+/* Styles pour centrer la connexion comme une application mobile */
+.auth-wrapper {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: calc(100vh - 80px); /* Prend toute la hauteur de l'écran moins la barre du haut */
+    padding: 1rem;
+}
+
+.auth-card {
+    background: var(--w);
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+    border: 1px solid var(--ln);
+    width: 100%;
+    max-width: 24rem;
+}
+
+.auth-card h1 {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
 </style>
 </head>
 <body>
@@ -66,15 +90,31 @@ function start(){
   S?go(list):auth()}
 
 function auth(reg){
-  $('#app').innerHTML=`<h1>${reg?'Créer un compte':'Connexion'}</h1><form id="f" style="max-width:24rem">
-  ${reg?'<label for="nm">Nom complet</label><input id="nm" required>':''}
-  <label for="em">Adresse e-mail</label><input id="em" type="email" required>
-  <label for="pw">Mot de passe${reg?' (8 caractères minimum)':''}</label><input id="pw" type="password" required minlength="${reg?8:1}">
-  <p><button>${reg?'Créer mon compte':'Se connecter'}</button> <button type="button" class="g" onclick="auth(${!reg})">${reg?'J’ai déjà un compte':'Créer un compte'}</button></p></form>`;
+  $('#app').innerHTML=`
+    <div class="auth-wrapper">
+      <div class="auth-card">
+        <h1>${reg?'Créer un compte':'Connexion'}</h1>
+        <form id="f">
+          ${reg?'<label for="nm">Nom complet</label><input id="nm" required>':''}
+          <label for="em">Adresse e-mail</label><input id="em" type="email" required>
+          <label for="pw">Mot de passe${reg?' (8 caractères minimum)':''}</label><input id="pw" type="password" required minlength="${reg?8:1}">
+          
+          <p style="margin-top: 1.5rem;">
+            <button style="width: 100%;">${reg?'Créer mon compte':'Se connecter'}</button> 
+          </p>
+          <p style="text-align: center; margin-top: 1rem;">
+            <button type="button" class="g" style="width: 100%;" onclick="auth(${!reg})">${reg?'J’ai déjà un compte':'Créer un compte'}</button>
+          </p>
+        </form>
+      </div>
+    </div>
+  `;
+  
   $('#f').onsubmit=e=>{e.preventDefault();go(async()=>{
     if(reg){await api('/register',{m:'POST',b:{name:$('#nm').value,email:$('#em').value,password:$('#pw').value}});note('Compte créé : connectez-vous')}
     else{S=await api('/login',{m:'POST',b:{email:$('#em').value,password:$('#pw').value}});sessionStorage.setItem('s',JSON.stringify(S))}
-    start()})}}
+    start()})}
+}
 
 async function list(){
   const ps=await api('/polls'),A=S.user.role==='admin';
@@ -115,7 +155,7 @@ async function res(id){
 function act(id,a){go(async()=>{const d=await api(`/admin/polls/${id}/${a}`,{m:'POST'});note(d.message);await list()})}
 function mix(id){if(confirm('Mélanger les bulletins et lancer le dépouillement ? Action définitive.'))go(async()=>{const d=await api(`/admin/polls/${id}/mix`,{m:'POST',b:{}});note(`${d.ballots} bulletins mixés · intégrité ${d.integrity_ok?'OK':'À VÉRIFIER'}`,!d.integrity_ok);await list()})}
 function del(id){if(confirm('Supprimer ce vote ?'))go(async()=>{await api('/admin/polls/'+id,{m:'DELETE'});await list()})}
-function exp(id){go(async()=>{const r=await fetch(`/api/admin/polls/${id}/export`,{headers:{Authorization:'Bearer '+S.token}});if(!r.ok)throw new Error((await r.json()).error);const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=`resultats_${id}.csv`;a.click()})}
+function exp(id){go(async()=>{const r=await fetch(`/api/admin/polls/${id}/export`,{headers:{Authorization:'Bearer '+S.token}});if(!r.ok)throw new Error((await r.json()).error);const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download = `Resultats_Officiels_${id}.pdf`;a.click()})}
 function showPart(id){go(async()=>{const d=await api(`/admin/polls/${id}/participation`);
   $('#app').innerHTML=`<button class="g" onclick="go(list)">Retour</button><h1>Participation</h1><p>${d.participants} votant(s) sur ${d.registered_voters} électeurs inscrits. Cette liste indique qui a voté, jamais pour qui.</p>
   <div style="overflow-x: auto;"><table><tr><th>Nom</th><th>E-mail</th><th>Heure</th></tr>${d.list.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${esc(u.voted_at)}</td></tr>`).join('')}</table></div>`})}
