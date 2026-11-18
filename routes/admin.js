@@ -63,14 +63,13 @@ router.post('/polls', async (req, res) => {
         [pollId, openAt, closeAt, b.show_results ? 1 : 0]
       );
               await conn.query(
-          'INSERT INTO options (poll_id, label, photo_url, circonscription, display_order, option_parent_id) VALUES ?',
+          'INSERT INTO options (poll_id, label, photo_url, circonscription, display_order) VALUES ?',
           [options.map((o, i) => [
             pollId, 
             String(o.label).trim(), 
             o.photo_url || null, 
             o.circonscription || null, 
             i, 
-            o.option_parent_id || null // <-- NOUVEAU
           ])]
         );
       return pollId;
@@ -374,6 +373,8 @@ router.put('/users/:id/role', async (req, res) => {
         }
         
         await pool.query('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]);
+        const io = req.app.get('io');
+if (io) io.emit('mise_a_jour_electeurs');
         res.json({ message: 'Rôle mis à jour avec succès.' });
     } catch (err) {
         console.error(err);
@@ -390,6 +391,8 @@ router.delete('/users/:id', async (req, res) => {
         }
 
         await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
+        const io = req.app.get('io');
+if (io) io.emit('mise_a_jour_electeurs');
         res.json({ message: 'Utilisateur supprimé avec succès.' });
     } catch (err) {
         console.error(err);
@@ -403,6 +406,8 @@ router.delete('/users/:id', async (req, res) => {
 router.put('/users/:id/validate', async (req, res) => {
     try {
         await pool.query('UPDATE users SET is_validated = TRUE WHERE id = ?', [req.params.id]);
+        const io = req.app.get('io');
+if (io) io.emit('mise_a_jour_electeurs');
         res.json({ message: 'Compte validé avec succès. L\'électeur peut maintenant voter.' });
     } catch (err) {
         console.error(err);
@@ -480,14 +485,4 @@ router.put('/polls/:id/toggle-results', async (req, res) => {
         res.status(500).json({ error: 'Erreur lors du changement de visibilité.' });
     }
 });// Lier un utilisateur à un député
-router.put('/users/:id/depute', async (req, res) => {
-    try {
-        const deputeId = req.body.depute_id || null;
-        await pool.query('UPDATE users SET depute_id = ? WHERE id = ?', [deputeId, req.params.id]);
-        res.json({ message: 'Lien avec le député mis à jour avec succès.' });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Erreur lors de la liaison.' });
-    }
-});
 module.exports = router;

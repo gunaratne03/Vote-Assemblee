@@ -117,7 +117,11 @@ function auth(reg){
 }
 
 async function list(){
+  // On annule le minuteur précédent s'il existe (pour éviter les bugs)
+  if(window.refreshTimer) clearTimeout(window.refreshTimer);
+
   const ps=await api('/polls'),A=S.user.role==='admin';
+  
   $('#app').innerHTML=`<h1>Votes</h1>${A?'<button onclick="newForm()" style="margin-right: 10px;">Nouveau vote</button>':''}
 ${A?'<button onclick="showUsers()" class="g">Gérer les électeurs</button>':''}`+(ps.map(p=>{
     const ex=!p.is_secret||p.is_mixed;
@@ -132,8 +136,16 @@ ${A?'<button onclick="showUsers()" class="g">Gérer les électeurs</button>':''}
     ${p.status==='closed'&&ex?`<button class="g" onclick="exp(${p.id})">Exporter</button>`:''}
     <button class="g" onclick="showCandidates(${p.id})">Gérer les candidats</button>
     <button class="g" onclick="toggleResults(${p.id})">${p.show_results ? 'Masquer résultats' : 'Afficher résultats'}</button>
-    <button class="d" onclick="del(${p.id})">Supprimer</button>`:''}</div></section>`}).join('')||'<p>Aucun vote pour le moment.</p>')}
+    <button class="d" onclick="del(${p.id})">Supprimer</button>`:''}</div></section>`}).join('')||'<p>Aucun vote pour le moment.</p>');
 
+  // ⏱️ NOUVEAU : Rafraîchissement automatique toutes les 5 secondes
+  window.refreshTimer = setTimeout(() => {
+      // On ne rafraîchit QUE si on est encore sur la page d'accueil
+      if ($('#app').innerHTML.includes('Votes</h1>')) {
+          list().catch(err => console.log("Auto-refresh en pause"));
+      }
+  }, 5000); // 5000 millisecondes = 5 secondes
+}
 async function vote(id){
   const p=await api('/polls/'+id),m=p.allow_multiple;
   $('#app').innerHTML=`<button class="g" onclick="go(list)">Retour</button><h1>${esc(p.title)}</h1>
@@ -172,7 +184,6 @@ function addCandidate() {
     <input type="text" class="c-name" placeholder="Nom du candidat" required>
     <input type="text" class="c-dist" placeholder="Circonscription" required>
     <input type="file" class="c-file" accept="image/*" required>
-    <input type="number" class="c-parent" placeholder="ID Parent (opt)" style="width: 130px;" title="Lier ce candidat à un autre (ex: suppléant)">
     <button type="button" class="d" onclick="this.parentElement.remove()">X</button>
   `;
   document.getElementById('candidates-list').appendChild(div);
@@ -233,7 +244,6 @@ function newForm(){
           const label = row.querySelector('.c-name').value;
           const circonscription = row.querySelector('.c-dist').value;
           const fileInput = row.querySelector('.c-file');
-          const parentId = row.querySelector('.c-parent').value; 
 
           let photo_url = null;
           if (fileInput.files.length > 0) {
@@ -244,7 +254,6 @@ function newForm(){
               label, 
               circonscription, 
               photo_url,
-              option_parent_id: parentId ? parseInt(parentId) : null 
           });
         }
 
@@ -294,7 +303,6 @@ async function showUsers() {
                         <td style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                             
                             ${!u.is_validated ? `<button class="g" onclick="validateUser(${u.id})">Valider</button>` : ''}
-                            <button class="g" onclick="setDeputeId(${u.id})">Lier Député</button>
                             <button class="g" onclick="toggleRole(${u.id}, '${u.role}')">
                                 ${u.role === 'admin' ? 'Rétrograder' : 'Nommer Admin'}
                             </button>
@@ -416,6 +424,16 @@ async function editCandidate(optionId, currentLabel, currentDistrict, currentPho
     });
 }
 start();
+</script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io();
+    socket.on('mise_a_jour_electeurs', () => {
+        console.log("Mise à jour reçue !");
+        if (document.querySelector('h1') && document.querySelector('h1').innerText.includes('Gestion des électeurs')) {
+            showUsers();
+        }
+    });
 </script>
 </body>
 </html>
